@@ -1,0 +1,6 @@
+Weather data is provided by Open-Meteo (https://open-meteo.com/) under CC BY 4.0.
+
+When weather is enabled, the widget sends the user-confirmed administrative-area center coordinates to Open-Meteo. The network request naturally exposes the connection IP to that service. No Codex token, quota data, session content, or chat content is sent to Open-Meteo.
+
+Weather information is for decorative and informational use only. It must not be used for emergency warnings or safety-critical decisions.
+

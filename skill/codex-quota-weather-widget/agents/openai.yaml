@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Quota Weather Widget"
+  short_description: "Install and manage a private Codex quota HUD"
+  default_prompt: "Use $codex-quota-weather-widget to install and configure the Codex quota weather widget."

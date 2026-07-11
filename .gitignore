@@ -1,0 +1,16 @@
+# Local widget state and user configuration
+widget-config.json
+weather-cache.json
+widget-state.json
+
+# Build output
+dist/
+*.zip
+*.sha256
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
