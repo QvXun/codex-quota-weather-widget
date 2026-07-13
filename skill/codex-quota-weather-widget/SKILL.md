@@ -57,3 +57,4 @@ Explain that uninstall removes the widget, its local configuration, cached weath
 
 The widget scans recent local Codex session tails and parses only `event_msg -> token_count -> rate_limits` metadata. It does not parse, display, store, or transmit ordinary conversation lines. Its only external request is the Open-Meteo forecast request when weather is enabled. No telemetry or analytics endpoints are included.
 
+Treat `primary` and `secondary` only as ordered slots. Derive each visible quota-period label from `window_minutes`, and hide an absent second window instead of assuming fixed five-hour and weekly meanings.

@@ -204,13 +204,46 @@ function Get-WeatherData($config) {
     }
 }
 
+function Get-RateLimitWindows($limits) {
+    $windows = @()
+    foreach ($slot in @('primary', 'secondary')) {
+        $limit = $limits.$slot
+        if ($limit -and $null -ne $limit.used_percent) {
+            $windows += [pscustomobject]@{
+                Slot = $slot
+                Data = $limit
+            }
+        }
+    }
+    return @($windows)
+}
+
+function Get-QuotaWindowLabel($limit, [int]$ordinal) {
+    $minutes = 0L
+    try { $minutes = [long]$limit.window_minutes } catch {}
+    if ($minutes -le 0) { return "额度 $ordinal" }
+    if (($minutes % 1440) -eq 0) { return ('{0} 天额度' -f [long]($minutes / 1440)) }
+    if (($minutes % 60) -eq 0) { return ('{0} 小时额度' -f [long]($minutes / 60)) }
+    return ('{0} 分钟额度' -f $minutes)
+}
+
 if ($Test) {
     $result = Get-LatestCodexRateLimit
+    $windows = @(Get-RateLimitWindows $result.Limits)
     [pscustomobject]@{
         timestamp_utc = $result.TimestampUtc.ToString('o')
         plan          = $result.Limits.plan_type
-        five_hour     = $result.Limits.primary
-        seven_day     = $result.Limits.secondary
+        windows       = @(
+            for ($i = 0; $i -lt $windows.Count; $i++) {
+                [pscustomobject]@{
+                    slot           = $windows[$i].Slot
+                    label          = Get-QuotaWindowLabel $windows[$i].Data ($i + 1)
+                    used_percent   = $windows[$i].Data.used_percent
+                    window_minutes = $windows[$i].Data.window_minutes
+                    resets_at      = $windows[$i].Data.resets_at
+                }
+            }
+        )
         credits       = $result.Limits.credits
     } | ConvertTo-Json -Depth 8
     exit 0
@@ -241,8 +274,8 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
     <Grid>
       <Grid.RowDefinitions>
         <RowDefinition Height="34"/>
-        <RowDefinition Height="58"/>
-        <RowDefinition Height="58"/>
+        <RowDefinition Name="PrimaryRow" Height="58"/>
+        <RowDefinition Name="SecondaryRow" Height="58"/>
         <RowDefinition Height="54"/>
       </Grid.RowDefinitions>
 
@@ -264,10 +297,10 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
         <Button Grid.Column="2" Name="CloseButton" Content="×" FontSize="19" Foreground="#AAB3C2" Background="Transparent" BorderThickness="0" Cursor="Hand" ToolTip="关闭"/>
       </Grid>
 
-      <Grid Grid.Row="1" Margin="0,3,0,0">
+      <Grid Grid.Row="1" Name="PrimarySection" Margin="0,3,0,0">
         <Grid.RowDefinitions><RowDefinition Height="25"/><RowDefinition Height="10"/><RowDefinition Height="20"/></Grid.RowDefinitions>
         <Grid>
-          <TextBlock Text="5 小时额度" Foreground="#CCD3DE" FontSize="13" FontFamily="Microsoft YaHei UI"/>
+          <TextBlock Name="PrimaryLabel" Text="额度 1" Foreground="#CCD3DE" FontSize="13" FontFamily="Microsoft YaHei UI"/>
           <TextBlock Name="PrimaryText" Text="--" HorizontalAlignment="Right" Foreground="#F4F7FB" FontSize="13" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
         </Grid>
         <Border Grid.Row="1" Name="PrimaryTrack" CornerRadius="5" Height="8" Background="#303642" ClipToBounds="True">
@@ -276,10 +309,10 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
         <TextBlock Grid.Row="2" Name="PrimaryReset" Text="等待数据…" Foreground="#7F899A" FontSize="10.5" VerticalAlignment="Bottom" FontFamily="Microsoft YaHei UI"/>
       </Grid>
 
-      <Grid Grid.Row="2" Margin="0,5,0,0">
+      <Grid Grid.Row="2" Name="SecondarySection" Margin="0,5,0,0">
         <Grid.RowDefinitions><RowDefinition Height="25"/><RowDefinition Height="10"/><RowDefinition Height="20"/></Grid.RowDefinitions>
         <Grid>
-          <TextBlock Text="7 天额度" Foreground="#CCD3DE" FontSize="13" FontFamily="Microsoft YaHei UI"/>
+          <TextBlock Name="SecondaryLabel" Text="额度 2" Foreground="#CCD3DE" FontSize="13" FontFamily="Microsoft YaHei UI"/>
           <TextBlock Name="SecondaryText" Text="--" HorizontalAlignment="Right" Foreground="#F4F7FB" FontSize="13" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
         </Grid>
         <Border Grid.Row="1" Name="SecondaryTrack" CornerRadius="5" Height="8" Background="#303642" ClipToBounds="True">
@@ -310,7 +343,7 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 $reader = New-Object System.Xml.XmlNodeReader $xaml
 $window = [Windows.Markup.XamlReader]::Load($reader)
 
-$names = @('RootBorder','StatusDot','DragArea','TitleText','PlanText','DemoBadge','RefreshButton','CloseButton','PrimaryText','PrimaryTrack','PrimaryFill','PrimaryReset','SecondaryText','SecondaryTrack','SecondaryFill','SecondaryReset','SeasonBadge','SeasonText','WeatherText','StatusText','WeatherCanvas','LightningFlash')
+$names = @('RootBorder','StatusDot','DragArea','TitleText','PlanText','DemoBadge','RefreshButton','CloseButton','PrimaryRow','SecondaryRow','PrimarySection','PrimaryLabel','PrimaryText','PrimaryTrack','PrimaryFill','PrimaryReset','SecondarySection','SecondaryLabel','SecondaryText','SecondaryTrack','SecondaryFill','SecondaryReset','SeasonBadge','SeasonText','WeatherText','StatusText','WeatherCanvas','LightningFlash')
 foreach ($name in $names) { Set-Variable -Name $name -Value $window.FindName($name) }
 
 $script:primaryUsed = 0.0
@@ -408,6 +441,18 @@ function Set-BarWidth {
     $SecondaryFill.Width = Get-RemainingBarWidth $SecondaryTrack.ActualWidth $script:secondaryUsed
 }
 
+function Set-QuotaLayout([bool]$showSecondary) {
+    if ($showSecondary) {
+        $SecondarySection.Visibility = [System.Windows.Visibility]::Visible
+        $SecondaryRow.Height = New-Object System.Windows.GridLength -ArgumentList 58
+        $window.Height = 246
+    } else {
+        $SecondarySection.Visibility = [System.Windows.Visibility]::Collapsed
+        $SecondaryRow.Height = New-Object System.Windows.GridLength -ArgumentList 0
+        $window.Height = 188
+    }
+}
+
 function Get-UsageColor([double]$used, [string]$normal) {
     if ($used -ge 90) { return '#FF657A' }
     if ($used -ge 70) { return '#FFB454' }
@@ -420,13 +465,21 @@ function Update-Quota {
     try {
         $result = Get-LatestCodexRateLimit
         $limits = $result.Limits
-        $script:primaryUsed = [double]$limits.primary.used_percent
-        if ($limits.secondary) { $script:secondaryUsed = [double]$limits.secondary.used_percent } else { $script:secondaryUsed = 0 }
+        $windows = @(Get-RateLimitWindows $limits)
+        if ($windows.Count -lt 1) { throw '当前额度事件没有返回可显示的额度窗口。' }
+
+        $primaryWindow = $windows[0].Data
+        $secondaryWindow = if ($windows.Count -gt 1) { $windows[1].Data } else { $null }
+        $script:primaryUsed = [double]$primaryWindow.used_percent
+        $script:secondaryUsed = if ($secondaryWindow) { [double]$secondaryWindow.used_percent } else { 0 }
+        $PrimaryLabel.Text = Get-QuotaWindowLabel $primaryWindow 1
+        if ($secondaryWindow) { $SecondaryLabel.Text = Get-QuotaWindowLabel $secondaryWindow 2 }
+        Set-QuotaLayout ([bool]$secondaryWindow)
 
         $PrimaryText.Text = ('已用 {0:0.#}% · 剩余 {1:0.#}%' -f $script:primaryUsed, [Math]::Max(0, 100 - $script:primaryUsed))
-        $SecondaryText.Text = if ($limits.secondary) { ('已用 {0:0.#}% · 剩余 {1:0.#}%' -f $script:secondaryUsed, [Math]::Max(0, 100 - $script:secondaryUsed)) } else { '当前方案未返回' }
-        $PrimaryReset.Text = Get-ResetDescription $limits.primary.resets_at
-        $SecondaryReset.Text = if ($limits.secondary) { Get-ResetDescription $limits.secondary.resets_at } else { '无第二额度窗口' }
+        if ($secondaryWindow) { $SecondaryText.Text = ('已用 {0:0.#}% · 剩余 {1:0.#}%' -f $script:secondaryUsed, [Math]::Max(0, 100 - $script:secondaryUsed)) }
+        $PrimaryReset.Text = Get-ResetDescription $primaryWindow.resets_at
+        if ($secondaryWindow) { $SecondaryReset.Text = Get-ResetDescription $secondaryWindow.resets_at }
         $PlanText.Text = if ($limits.plan_type) { ([string]$limits.plan_type).ToUpperInvariant() } else { '' }
         $PrimaryFill.Background = ConvertTo-Brush (Get-UsageColor $script:primaryUsed $script:primaryAccent)
         $SecondaryFill.Background = ConvertTo-Brush (Get-UsageColor $script:secondaryUsed $script:secondaryAccent)
@@ -803,6 +856,17 @@ $window.Add_Closed({
 
 if ($SmokeTest) {
     Apply-SeasonTheme
+    $labelResults = @(
+        (Get-QuotaWindowLabel ([pscustomobject]@{ window_minutes=300 }) 1),
+        (Get-QuotaWindowLabel ([pscustomobject]@{ window_minutes=10080 }) 1),
+        (Get-QuotaWindowLabel ([pscustomobject]@{ window_minutes=90 }) 1),
+        (Get-QuotaWindowLabel ([pscustomobject]@{}) 2)
+    ) -join ','
+    if ($labelResults -ne '5 小时额度,7 天额度,90 分钟额度,额度 2') { throw '额度周期动态标签自检失败。' }
+    Set-QuotaLayout $false
+    if ($SecondarySection.Visibility -ne [System.Windows.Visibility]::Collapsed -or $window.Height -ne 188) { throw '单额度布局自检失败。' }
+    Set-QuotaLayout $true
+    if ($SecondarySection.Visibility -ne [System.Windows.Visibility]::Visible -or $window.Height -ne 246) { throw '双额度布局自检失败。' }
     $remainingRatio = (Get-RemainingBarWidth 200 36) / 200
     if ([Math]::Abs($remainingRatio - 0.64) -gt 0.001 -or
         $PrimaryFill.HorizontalAlignment -ne [System.Windows.HorizontalAlignment]::Left) { throw '剩余额度进度条自检失败。' }
@@ -833,7 +897,7 @@ if ($SmokeTest) {
     if ($modeResults -ne 'none,rain,fog,snow,thunder' -or -not (Test-WeatherCacheExpired $oldCache 45)) { throw '实时天气模式映射自检失败。' }
     Add-FogBand
     if (@($script:particles | Where-Object { $_.Kind -eq 'fog' }).Count -lt 1) { throw '雾效自检失败。' }
-    "UI_OK controls=$($names.Count) remaining_bar=$([Math]::Round($remainingRatio*100))% modes=$modeResults demo_scenes=$($script:demoScenes.Count)"
+    "UI_OK controls=$($names.Count) remaining_bar=$([Math]::Round($remainingRatio*100))% quota_labels=$labelResults modes=$modeResults demo_scenes=$($script:demoScenes.Count)"
     if ($mutex) { $mutex.ReleaseMutex(); $mutex.Dispose() }
     exit 0
 }
