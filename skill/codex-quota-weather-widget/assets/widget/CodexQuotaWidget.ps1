@@ -121,7 +121,7 @@ function Get-SeasonInfo([datetime]$date, [double]$latitude) {
         return [pscustomobject]@{ Key='spring'; Name='春日'; Icon='✿'; Background='#F21A2421'; Border='#6EC69A'; Primary='#69D9A2'; Secondary='#F09AB3'; Badge='#274B3C'; Rain='#8BD7D8' }
     }
     if ($month -in 6,7,8) {
-        return [pscustomobject]@{ Key='summer'; Name='盛夏'; Icon='☀'; Background='#F2162229'; Border='#4CBFC9'; Primary='#50E3C2'; Secondary='#63AFFF'; Badge='#214851'; Rain='#74D9FF' }
+        return [pscustomobject]@{ Key='summer'; Name='盛夏'; Icon='☀'; Background='#F2132528'; Border='#4CBFC9'; Primary='#50E3C2'; Secondary='#63AFFF'; Badge='#214851'; Rain='#74D9FF' }
     }
     if ($month -in 9,10,11) {
         return [pscustomobject]@{ Key='autumn'; Name='金秋'; Icon='◆'; Background='#F2251D18'; Border='#B97842'; Primary='#F0A653'; Secondary='#D97745'; Badge='#513623'; Rain='#88C9E8' }
@@ -260,17 +260,26 @@ $mutex = New-Object Threading.Mutex($true, $mutexName, [ref]$createdNew)
 if (-not $createdNew) { exit 0 }
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+
+# 复制托盘图标后立即释放原生 HICON，避免悬浮窗长期运行时泄漏句柄。
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class CodexQuotaNativeIcon {
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    public static extern bool DestroyIcon(IntPtr handle);
+}
+'@
 
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Codex 额度" Width="330" Height="246"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
-        Topmost="True" ResizeMode="NoResize" ShowInTaskbar="True">
+        Topmost="True" ResizeMode="NoResize" ShowInTaskbar="False">
   <Border Name="RootBorder" CornerRadius="18" Background="#F2162229" BorderBrush="#4CBFC9" BorderThickness="1" Padding="18">
-    <Border.Effect>
-      <DropShadowEffect BlurRadius="24" ShadowDepth="5" Opacity="0.42" Color="#000000"/>
-    </Border.Effect>
     <Grid>
       <Grid.RowDefinitions>
         <RowDefinition Height="34"/>
@@ -279,7 +288,7 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
         <RowDefinition Height="54"/>
       </Grid.RowDefinitions>
 
-      <Grid Grid.Row="0" Name="DragArea" Background="Transparent">
+      <Grid Grid.Row="0" Name="DragArea" Background="Transparent" Panel.ZIndex="20">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="34"/>
@@ -294,10 +303,10 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
           </Border>
         </StackPanel>
         <Button Grid.Column="1" Name="RefreshButton" Content="↻" FontSize="18" Foreground="#AAB3C2" Background="Transparent" BorderThickness="0" Cursor="Hand" ToolTip="立即刷新"/>
-        <Button Grid.Column="2" Name="CloseButton" Content="×" FontSize="19" Foreground="#AAB3C2" Background="Transparent" BorderThickness="0" Cursor="Hand" ToolTip="关闭"/>
+        <Button Grid.Column="2" Name="CloseButton" Content="×" FontSize="19" Foreground="#AAB3C2" Background="Transparent" BorderThickness="0" Cursor="Hand" ToolTip="隐藏到托盘"/>
       </Grid>
 
-      <Grid Grid.Row="1" Name="PrimarySection" Margin="0,3,0,0">
+      <Grid Grid.Row="1" Name="PrimarySection" Margin="0,3,0,0" Panel.ZIndex="20">
         <Grid.RowDefinitions><RowDefinition Height="25"/><RowDefinition Height="10"/><RowDefinition Height="20"/></Grid.RowDefinitions>
         <Grid>
           <TextBlock Name="PrimaryLabel" Text="额度 1" Foreground="#CCD3DE" FontSize="13" FontFamily="Microsoft YaHei UI"/>
@@ -309,7 +318,7 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
         <TextBlock Grid.Row="2" Name="PrimaryReset" Text="等待数据…" Foreground="#7F899A" FontSize="10.5" VerticalAlignment="Bottom" FontFamily="Microsoft YaHei UI"/>
       </Grid>
 
-      <Grid Grid.Row="2" Name="SecondarySection" Margin="0,5,0,0">
+      <Grid Grid.Row="2" Name="SecondarySection" Margin="0,5,0,0" Panel.ZIndex="20">
         <Grid.RowDefinitions><RowDefinition Height="25"/><RowDefinition Height="10"/><RowDefinition Height="20"/></Grid.RowDefinitions>
         <Grid>
           <TextBlock Name="SecondaryLabel" Text="额度 2" Foreground="#CCD3DE" FontSize="13" FontFamily="Microsoft YaHei UI"/>
@@ -321,7 +330,7 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
         <TextBlock Grid.Row="2" Name="SecondaryReset" Text="等待数据…" Foreground="#7F899A" FontSize="10.5" VerticalAlignment="Bottom" FontFamily="Microsoft YaHei UI"/>
       </Grid>
 
-      <Grid Grid.Row="3" Margin="0,6,0,0">
+      <Grid Grid.Row="3" Margin="0,6,0,0" Panel.ZIndex="20">
         <Grid.RowDefinitions><RowDefinition Height="25"/><RowDefinition Height="22"/></Grid.RowDefinitions>
         <Grid VerticalAlignment="Center">
           <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -333,8 +342,8 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
         <TextBlock Grid.Row="1" Name="StatusText" Text="正在读取本机 Codex 状态…" Foreground="#697487" FontSize="10.5" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" FontFamily="Microsoft YaHei UI"/>
       </Grid>
 
-      <Canvas Grid.RowSpan="4" Name="WeatherCanvas" Margin="-14" IsHitTestVisible="False" Panel.ZIndex="50" ClipToBounds="False"/>
-      <Rectangle Grid.RowSpan="4" Name="LightningFlash" Margin="-14" RadiusX="16" RadiusY="16" Fill="#EAF3FF" Opacity="0" IsHitTestVisible="False" Panel.ZIndex="60"/>
+      <Canvas Grid.RowSpan="4" Name="WeatherCanvas" Margin="-14" IsHitTestVisible="False" Panel.ZIndex="10" ClipToBounds="True"/>
+      <Rectangle Grid.RowSpan="4" Name="LightningFlash" Margin="-14" RadiusX="16" RadiusY="16" Fill="#EAF3FF" Opacity="0" IsHitTestVisible="False" Panel.ZIndex="30"/>
     </Grid>
   </Border>
 </Window>
@@ -392,6 +401,106 @@ $script:demoScenes = @(
 
 function ConvertTo-Brush([string]$color) {
     return $script:brushConverter.ConvertFromString($color)
+}
+
+function Get-AutumnLeafSource {
+    # 只在首次使用时读取两张透明贴图，后续所有粒子共享冻结后的 BitmapImage。
+    if (-not $script:autumnLeafSources) {
+        $script:autumnLeafSources = @()
+        foreach ($fileName in @('autumn-maple-orange.png','autumn-maple-red.png')) {
+            $path = Join-Path $PSScriptRoot $fileName
+            if (-not (Test-Path -LiteralPath $path)) { continue }
+            $bitmap = New-Object System.Windows.Media.Imaging.BitmapImage
+            $bitmap.BeginInit()
+            $bitmap.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+            $bitmap.DecodePixelWidth = 128
+            $bitmap.UriSource = New-Object System.Uri ((Resolve-Path -LiteralPath $path).Path)
+            $bitmap.EndInit()
+            $bitmap.Freeze()
+            $script:autumnLeafSources += $bitmap
+        }
+    }
+    if (-not $script:autumnLeafSources -or $script:autumnLeafSources.Count -eq 0) { return $null }
+    return $script:autumnLeafSources[$script:random.Next(0,$script:autumnLeafSources.Count)]
+}
+
+function New-WidgetTrayIcon {
+    # 深蓝底 + 青绿色额度环，在 16px 托盘尺寸下仍能与 PowerShell 图标区分。
+    $bitmap = New-Object System.Drawing.Bitmap 32,32
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    $backgroundBrush = $null
+    $accentPen = $null
+    $markerBrush = $null
+    $handle = [IntPtr]::Zero
+    try {
+        $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $graphics.Clear([System.Drawing.Color]::Transparent)
+
+        $backgroundBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255,22,34,41))
+        $graphics.FillEllipse($backgroundBrush, 1, 1, 30, 30)
+
+        $accentPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255,80,227,194)),4
+        $accentPen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
+        $accentPen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+        $graphics.DrawArc($accentPen, 6, 6, 20, 20, -90, 268)
+
+        $markerBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255,244,247,251))
+        $graphics.FillEllipse($markerBrush, 6, 14, 5, 5)
+
+        $handle = $bitmap.GetHicon()
+        $nativeIcon = [System.Drawing.Icon]::FromHandle($handle)
+        try { return [System.Drawing.Icon]$nativeIcon.Clone() } finally { $nativeIcon.Dispose() }
+    } finally {
+        if ($handle -ne [IntPtr]::Zero) { [void][CodexQuotaNativeIcon]::DestroyIcon($handle) }
+        if ($markerBrush) { $markerBrush.Dispose() }
+        if ($accentPen) { $accentPen.Dispose() }
+        if ($backgroundBrush) { $backgroundBrush.Dispose() }
+        $graphics.Dispose()
+        $bitmap.Dispose()
+    }
+}
+
+function Show-WidgetWindow {
+    if (-not $window.IsVisible) { $window.Show() }
+    if ($window.WindowState -eq [System.Windows.WindowState]::Minimized) {
+        $window.WindowState = [System.Windows.WindowState]::Normal
+    }
+    $window.Activate()
+    $window.Topmost = $true
+}
+
+function Hide-WidgetWindow {
+    if ($window.IsVisible) { $window.Hide() }
+}
+
+function Toggle-WidgetWindow {
+    if ($window.IsVisible) { Hide-WidgetWindow } else { Show-WidgetWindow }
+}
+
+function Initialize-TrayIcon {
+    $script:trayIconImage = New-WidgetTrayIcon
+    $script:trayMenu = New-Object System.Windows.Forms.ContextMenuStrip
+    $toggleItem = New-Object System.Windows.Forms.ToolStripMenuItem '显示 / 隐藏悬浮窗'
+    $refreshItem = New-Object System.Windows.Forms.ToolStripMenuItem '立即刷新'
+    $exitItem = New-Object System.Windows.Forms.ToolStripMenuItem '退出'
+    [void]$script:trayMenu.Items.Add($toggleItem)
+    [void]$script:trayMenu.Items.Add($refreshItem)
+    [void]$script:trayMenu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+    [void]$script:trayMenu.Items.Add($exitItem)
+
+    $script:notifyIcon = New-Object System.Windows.Forms.NotifyIcon
+    $script:notifyIcon.Icon = $script:trayIconImage
+    $script:notifyIcon.Text = 'Codex 额度悬浮窗'
+    $script:notifyIcon.ContextMenuStrip = $script:trayMenu
+    $script:notifyIcon.Visible = $true
+
+    $toggleItem.Add_Click({ Toggle-WidgetWindow })
+    $script:notifyIcon.Add_DoubleClick({ Toggle-WidgetWindow })
+    $refreshItem.Add_Click({
+        Update-Quota
+        if ($DemoWeather) { Show-NextWeatherDemo } else { Update-Weather }
+    })
+    $exitItem.Add_Click({ $window.Close() })
 }
 
 function Apply-SeasonTheme([string]$forcedSeason = '') {
@@ -652,43 +761,235 @@ function Add-FogBand {
     [void]$script:particles.Add([pscustomobject]@{ Kind='fog'; Shape=$band; X=$x; Y=$y; Age=0; VX=(0.12 + $script:random.NextDouble()*0.18); VY=0.0 })
 }
 
+function New-SeasonPath([string]$geometryData, [string]$fill, [double]$width, [double]$height) {
+    # 使用可缩放的简单轮廓，让花瓣和落叶在小尺寸下仍可辨认。
+    $path = New-Object System.Windows.Shapes.Path
+    $path.Data = [System.Windows.Media.Geometry]::Parse($geometryData)
+    $path.Stretch = [System.Windows.Media.Stretch]::Fill
+    $path.Fill = ConvertTo-Brush $fill
+    $path.Width = $width
+    $path.Height = $height
+    return $path
+}
+
+function Add-SummerGrassShadow {
+    # 草影只提供很弱的底部层次，不进入萤火虫数量统计，也不遮挡正文。
+    if (@($script:particles | Where-Object { $_.Kind -eq 'summergrass' }).Count -gt 0) { return }
+
+    $width = [Math]::Max(280, $WeatherCanvas.ActualWidth)
+    $height = [Math]::Max(200, $WeatherCanvas.ActualHeight)
+    $grassHeight = 22.0
+    $geometry = New-Object System.Text.StringBuilder
+    [void]$geometry.Append("M 0,$grassHeight L $width,$grassHeight L $width,18 ")
+    for ($x = $width - 5; $x -gt 0; $x -= 11) {
+        $bladeHeight = 4 + (($x / 11) % 4) * 1.4
+        [void]$geometry.Append(("L {0:0.0},18 L {1:0.0},{2:0.0} L {3:0.0},18 " -f ($x + 2.2), $x, (18 - $bladeHeight), ($x - 2.1)))
+    }
+    [void]$geometry.Append("L 0,18 Z")
+
+    $grass = New-SeasonPath $geometry.ToString() '#3D6C66' $width $grassHeight
+    $grass.Opacity = 0.13
+    [System.Windows.Controls.Canvas]::SetLeft($grass, 0)
+    [System.Windows.Controls.Canvas]::SetTop($grass, ($height - $grassHeight))
+    [void]$WeatherCanvas.Children.Add($grass)
+    [void]$script:particles.Add([pscustomobject]@{
+        Kind='summergrass'; Shape=$grass; X=0.0; Y=($height - $grassHeight); Age=0
+        VX=0.0; VY=0.0; Phase=0.0; Spin=0.0; BaseOpacity=0.13; Transform=$null
+        Route='static'; MinX=0.0; MaxX=$width; MinY=($height - $grassHeight); MaxY=$height; MaxAge=0
+    })
+}
+
+function Remove-SummerGrassShadow {
+    for ($i = $script:particles.Count - 1; $i -ge 0; $i--) {
+        if ($script:particles[$i].Kind -ne 'summergrass') { continue }
+        [void]$WeatherCanvas.Children.Remove($script:particles[$i].Shape)
+        $script:particles.RemoveAt($i)
+    }
+}
+
 function Add-SeasonParticle {
     $width = [Math]::Max(280, $WeatherCanvas.ActualWidth)
     $height = [Math]::Max(200, $WeatherCanvas.ActualHeight)
+    $x = 8 + $script:random.NextDouble() * ($width - 16)
+    $y = -12.0
+    $phase = $script:random.NextDouble() * [Math]::PI * 2
+    $shape = $null
+    $transform = $null
+    $kind = ''
+    $vx = 0.0
+    $vy = 0.0
+    $spin = 0.0
+    $baseOpacity = 0.72
+    $route = ''
+    $minX = 0.0
+    $maxX = $width
+    $minY = 0.0
+    $maxY = $height
+    $maxAge = 900
 
-    $shape = if ($script:season.Key -in @('autumn','winter')) { New-Object System.Windows.Shapes.Rectangle } else { New-Object System.Windows.Shapes.Ellipse }
-    $x = $script:random.NextDouble() * $width
-    $y = -8.0
-    $vx = ($script:random.NextDouble() - 0.5) * 0.7
-    $vy = 0.45 + $script:random.NextDouble() * 0.45
-    if ($script:season.Key -eq 'spring') {
-        $shape.Width=5; $shape.Height=3; $shape.Fill=ConvertTo-Brush '#F3A8BD'; $shape.Opacity=0.48
-    } elseif ($script:season.Key -eq 'summer') {
-        $shape.Width=3.5; $shape.Height=3.5; $shape.Fill=ConvertTo-Brush '#FFF09A'; $shape.Opacity=0.65
-        $y = $height + 4; $vy = -(0.25 + $script:random.NextDouble() * 0.35)
-    } elseif ($script:season.Key -eq 'autumn') {
-        $shape.Width=5; $shape.Height=3.2; $shape.Fill=ConvertTo-Brush '#E9914B'; $shape.Opacity=0.5
-    } else {
-        # 冬季晴天只显示冰晶微光，不使用雪花；雪花仅由真实降雪模式触发。
-        $shape.Width=3.2; $shape.Height=3.2; $shape.Fill=ConvertTo-Brush '#C7E7FF'; $shape.Opacity=0.42
+    switch ($script:season.Key) {
+        'spring' {
+            $colors = @('#F8B4C8','#F29AB6','#FFD2DE','#E99BB7')
+            $size = 5.8 + $script:random.NextDouble() * 3.0
+            $shape = New-SeasonPath 'M 0,4 C 2,0 6,0 9,3 C 7,7 3,8 0,4 Z' $colors[$script:random.Next(0,$colors.Count)] $size ($size * 0.62)
+            $kind = 'petal'
+            $vx = 0.08 + $script:random.NextDouble() * 0.22
+            $vy = 0.32 + $script:random.NextDouble() * 0.28
+            $spin = ($script:random.NextDouble() - 0.5) * 1.8
+            $baseOpacity = 0.62 + $script:random.NextDouble() * 0.2
+        }
+        'summer' {
+            # 用翅膀、躯干和暖黄色尾光表达萤火虫，避免大量绿色光点。
+            $size = 11.0 + $script:random.NextDouble() * 3.0
+            $shape = New-Object System.Windows.Controls.Grid
+            $shape.Width = $size
+            $shape.Height = $size
+            $halo = New-Object System.Windows.Shapes.Ellipse
+            $halo.Fill = ConvertTo-Brush '#FFE58A'
+            $halo.Opacity = 0.20
+            $blur = New-Object System.Windows.Media.Effects.BlurEffect
+            $blur.Radius = 4.6
+            $halo.Effect = $blur
+            [void]$shape.Children.Add($halo)
+
+            foreach ($wingSide in @(-1, 1)) {
+                $wing = New-Object System.Windows.Shapes.Ellipse
+                $wing.Width = 4.8
+                $wing.Height = 2.5
+                $wing.Fill = ConvertTo-Brush '#B8D8D1'
+                $wing.Opacity = 0.48
+                $wing.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
+                $wing.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+                $wing.Margin = New-Object System.Windows.Thickness -ArgumentList ($wingSide * 4.0), -2.0, 0, 0
+                $wing.RenderTransformOrigin = [System.Windows.Point]::Parse('0.5,0.5')
+                $wing.RenderTransform = New-Object System.Windows.Media.RotateTransform ($wingSide * 24)
+                [void]$shape.Children.Add($wing)
+            }
+
+            $body = New-Object System.Windows.Shapes.Ellipse
+            $body.Width = 2.4
+            $body.Height = 6.0
+            $body.Fill = ConvertTo-Brush '#304A43'
+            $body.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
+            $body.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+            [void]$shape.Children.Add($body)
+
+            $tail = New-Object System.Windows.Shapes.Ellipse
+            $tail.Width = 3.0
+            $tail.Height = 3.0
+            $tail.Fill = ConvertTo-Brush '#FFF0A6'
+            $tail.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
+            $tail.VerticalAlignment = [System.Windows.VerticalAlignment]::Bottom
+            $tail.Margin = New-Object System.Windows.Thickness -ArgumentList 0, 0, 0, 1.4
+            [void]$shape.Children.Add($tail)
+
+            $kind = 'firefly'
+            $hasTitlePass = @($script:particles | Where-Object { $_.Kind -eq 'firefly' -and $_.Route -eq 'title' }).Count -gt 0
+            if (-not $hasTitlePass -and $script:random.NextDouble() -lt 0.12) {
+                # 标题附近的萤火虫保持横向飞行，不在文字区域悬停。
+                $route = 'title'
+                $x = $width - 12
+                $y = 10 + $script:random.NextDouble() * 18
+                $vx = -0.34 - $script:random.NextDouble() * 0.13
+                $vy = 0.0
+                $maxAge = 330
+            } else {
+                $route = if ($script:random.NextDouble() -lt 0.56) { 'right' } else { 'bottom' }
+                if ($route -eq 'right') {
+                    $minX = $width * 0.64; $maxX = $width * 0.94
+                    $minY = $height * 0.24; $maxY = $height * 0.86
+                } else {
+                    $minX = $width * 0.12; $maxX = $width * 0.92
+                    $minY = $height * 0.70; $maxY = $height * 0.90
+                }
+                $x = $minX + $script:random.NextDouble() * ($maxX - $minX)
+                $y = $minY + $script:random.NextDouble() * ($maxY - $minY)
+                $vx = ($script:random.NextDouble() - 0.5) * 0.13
+                $vy = ($script:random.NextDouble() - 0.5) * 0.09
+                $maxAge = 1050 + $script:random.Next(0, 520)
+            }
+            $baseOpacity = 0.76 + $script:random.NextDouble() * 0.16
+        }
+        'autumn' {
+            $size = 18.0 + $script:random.NextDouble() * 8.0
+            $leafSource = Get-AutumnLeafSource
+            if ($leafSource) {
+                $shape = New-Object System.Windows.Controls.Image
+                $shape.Source = $leafSource
+                $shape.Width = $size
+                $shape.Height = $size
+                $shape.Stretch = [System.Windows.Media.Stretch]::Uniform
+                $shape.SnapsToDevicePixels = $true
+            } else {
+                # 资源缺失时保留可辨认的降级轮廓，确保悬浮窗仍能运行。
+                $mapleGeometry = 'M 12,0 L 14,5 L 18,3 L 17,8 L 23,6 L 20,12 L 24,13 L 16,16 L 17,21 L 13,19 L 13,25 L 11,25 L 11,19 L 7,21 L 8,16 L 0,13 L 4,12 L 1,6 L 7,8 L 6,3 L 10,5 Z'
+                $shape = New-SeasonPath $mapleGeometry '#E88542' $size ($size * 1.04)
+            }
+            $kind = 'leaf'
+            $vx = 0.12 + $script:random.NextDouble() * 0.3
+            $vy = 0.26 + $script:random.NextDouble() * 0.3
+            $spin = ($script:random.NextDouble() - 0.5) * 2.2
+            $baseOpacity = 0.78 + $script:random.NextDouble() * 0.17
+        }
+        default {
+            $size = 9.0 + $script:random.NextDouble() * 5.5
+            $shape = New-Object System.Windows.Controls.TextBlock
+            $shape.Text = '❄'
+            $shape.FontFamily = 'Segoe UI Symbol'
+            $shape.FontSize = $size
+            $shape.Width = $size + 3
+            $shape.Height = $size + 5
+            $shape.TextAlignment = [System.Windows.TextAlignment]::Center
+            $shape.Foreground = ConvertTo-Brush '#D8EEFF'
+            $kind = 'flake'
+            $vx = ($script:random.NextDouble() - 0.5) * 0.24
+            $vy = 0.16 + $script:random.NextDouble() * 0.24
+            $spin = ($script:random.NextDouble() - 0.5) * 0.65
+            $baseOpacity = 0.42 + $script:random.NextDouble() * 0.25
+        }
+    }
+
+    $shape.Opacity = $baseOpacity
+    if ($kind -ne 'firefly') {
         $shape.RenderTransformOrigin = [System.Windows.Point]::Parse('0.5,0.5')
-        $shape.RenderTransform = New-Object System.Windows.Media.RotateTransform 45
-        $y = 12 + $script:random.NextDouble() * ($height - 24)
-        $vx = ($script:random.NextDouble() - 0.5) * 0.12
-        $vy = -(0.04 + $script:random.NextDouble() * 0.08)
+        $transform = New-Object System.Windows.Media.RotateTransform ($script:random.NextDouble() * 360)
+        $shape.RenderTransform = $transform
     }
     [System.Windows.Controls.Canvas]::SetLeft($shape, $x)
     [System.Windows.Controls.Canvas]::SetTop($shape, $y)
     [void]$WeatherCanvas.Children.Add($shape)
-    [void]$script:particles.Add([pscustomobject]@{ Kind='ambient'; Shape=$shape; X=$x; Y=$y; Age=0; VX=$vx; VY=$vy })
+    [void]$script:particles.Add([pscustomobject]@{
+        Kind=$kind; Shape=$shape; X=$x; Y=$y; Age=0; VX=$vx; VY=$vy
+        Phase=$phase; Spin=$spin; BaseOpacity=$baseOpacity; Transform=$transform
+        Route=$route; MinX=$minX; MaxX=$maxX; MinY=$minY; MaxY=$maxY; MaxAge=$maxAge
+    })
 }
 
 function Update-WeatherEffects {
     $LightningFlash.Opacity = [Math]::Max(0, $LightningFlash.Opacity * 0.72)
 
-    # 季节装饰与天气效果是两条独立视觉通道；恶劣天气下仅降低装饰密度。
-    $ambientChance = if ($script:weatherMode -eq 'none') { 0.018 } else { 0.006 }
-    if ($script:random.NextDouble() -lt $ambientChance) { Add-SeasonParticle }
+    # 季节装饰与天气效果是两条独立视觉通道。
+    $baseAmbientChance = switch ($script:season.Key) {
+        'spring' { 0.024 }
+        'summer' { 0.0018 }
+        'autumn' { 0.014 }
+        default { 0.021 }
+    }
+    $ambientChance = if ($script:weatherMode -eq 'none') { $baseAmbientChance } else { $baseAmbientChance * 0.34 }
+    $ambientKinds = @('petal','firefly','leaf','flake')
+    $ambientCount = @($script:particles | Where-Object { $_.Kind -in $ambientKinds }).Count
+    if ($script:season.Key -eq 'summer') {
+        Add-SummerGrassShadow
+        $fireflyCount = @($script:particles | Where-Object { $_.Kind -eq 'firefly' }).Count
+        if ($fireflyCount -lt 2 -or ($fireflyCount -lt 4 -and $script:random.NextDouble() -lt $ambientChance)) {
+            Add-SeasonParticle
+        }
+    } elseif ($ambientCount -lt 26 -and $script:random.NextDouble() -lt $ambientChance) {
+        Remove-SummerGrassShadow
+        Add-SeasonParticle
+    } else {
+        Remove-SummerGrassShadow
+    }
 
     if ($script:weatherMode -in @('rain','thunder')) {
         $count = if ($script:weatherIntensity -ge 3) { 2 } elseif ($script:weatherIntensity -eq 2) { 1 } elseif ($script:random.NextDouble() -lt 0.48) { 1 } else { 0 }
@@ -741,6 +1042,53 @@ function Update-WeatherEffects {
                 if ($p.X -gt ($width + 25)) { $p.X = -$p.Shape.Width }
                 [System.Windows.Controls.Canvas]::SetLeft($p.Shape, $p.X)
             }
+            'petal' {
+                $p.Age++
+                $p.X += $p.VX + [Math]::Sin($p.Age / 17.0 + $p.Phase) * 0.16
+                $p.Y += $p.VY
+                if ($p.Transform) { $p.Transform.Angle += $p.Spin }
+                [System.Windows.Controls.Canvas]::SetLeft($p.Shape, $p.X)
+                [System.Windows.Controls.Canvas]::SetTop($p.Shape, $p.Y)
+                if ($p.Y -gt ($height + 12) -or $p.X -gt ($width + 18) -or $p.Age -gt 900) { $remove = $true }
+            }
+            'firefly' {
+                $p.Age++
+                if ($p.Route -eq 'title') {
+                    $p.X += $p.VX
+                    $p.Y += [Math]::Sin($p.Age / 18.0 + $p.Phase) * 0.035
+                } else {
+                    $p.X += $p.VX + [Math]::Sin($p.Age / 27.0 + $p.Phase) * 0.045
+                    $p.Y += $p.VY + [Math]::Cos($p.Age / 34.0 + $p.Phase) * 0.030
+                    if ($p.X -le $p.MinX -or $p.X -ge $p.MaxX) { $p.VX = -$p.VX }
+                    if ($p.Y -le $p.MinY -or $p.Y -ge $p.MaxY) { $p.VY = -$p.VY }
+                    $p.X = [Math]::Min($p.MaxX, [Math]::Max($p.MinX, $p.X))
+                    $p.Y = [Math]::Min($p.MaxY, [Math]::Max($p.MinY, $p.Y))
+                }
+                $pulse = 0.62 + 0.38 * (([Math]::Sin($p.Age / 12.0 + $p.Phase) + 1) / 2)
+                $p.Shape.Opacity = $p.BaseOpacity * $pulse
+                [System.Windows.Controls.Canvas]::SetLeft($p.Shape, $p.X)
+                [System.Windows.Controls.Canvas]::SetTop($p.Shape, $p.Y)
+                if ($p.X -lt -18 -or $p.X -gt ($width + 18) -or $p.Age -gt $p.MaxAge) { $remove = $true }
+            }
+            'summergrass' { }
+            'leaf' {
+                $p.Age++
+                $p.X += $p.VX + [Math]::Sin($p.Age / 13.0 + $p.Phase) * 0.24
+                $p.Y += $p.VY
+                if ($p.Transform) { $p.Transform.Angle += $p.Spin }
+                [System.Windows.Controls.Canvas]::SetLeft($p.Shape, $p.X)
+                [System.Windows.Controls.Canvas]::SetTop($p.Shape, $p.Y)
+                if ($p.Y -gt ($height + 14) -or $p.X -gt ($width + 20) -or $p.Age -gt 800) { $remove = $true }
+            }
+            'flake' {
+                $p.Age++
+                $p.X += $p.VX + [Math]::Sin($p.Age / 25.0 + $p.Phase) * 0.07
+                $p.Y += $p.VY
+                if ($p.Transform) { $p.Transform.Angle += $p.Spin }
+                [System.Windows.Controls.Canvas]::SetLeft($p.Shape, $p.X)
+                [System.Windows.Controls.Canvas]::SetTop($p.Shape, $p.Y)
+                if ($p.Y -gt ($height + 18) -or $p.X -lt -20 -or $p.X -gt ($width + 20) -or $p.Age -gt 1100) { $remove = $true }
+            }
             default {
                 $p.Age++; $p.X += $p.VX; $p.Y += $p.VY
                 [System.Windows.Controls.Canvas]::SetLeft($p.Shape, $p.X)
@@ -773,7 +1121,13 @@ function Show-NextWeatherDemo {
     $WeatherText.Text = "$($scene.WeatherName) · 演示 $($script:demoIndex+1)/$($script:demoScenes.Count)"
     $WeatherText.ToolTip = '展示四季常见天气组合；点击刷新立即切换'
 
-    1..4 | ForEach-Object { Add-SeasonParticle }
+    $initialAmbientCount = switch ($script:season.Key) {
+        'autumn' { 3 }
+        'summer' { 3 }
+        default { 4 }
+    }
+    1..$initialAmbientCount | ForEach-Object { Add-SeasonParticle }
+    if ($script:season.Key -eq 'summer') { Add-SummerGrassShadow }
     if ($scene.Mode -eq 'snow') {
         1..9 | ForEach-Object { Add-Snowflake $false }
     } elseif ($scene.Mode -eq 'fog') {
@@ -781,8 +1135,9 @@ function Show-NextWeatherDemo {
     } elseif ($scene.Mode -in @('rain','thunder')) {
         1..5 | ForEach-Object { Add-RainDrop }
         if ($scene.Mode -eq 'thunder') { $LightningFlash.Opacity = 0.34 }
-    } elseif ($scene.Mode -eq 'none') {
-        1..3 | ForEach-Object { Add-SeasonParticle }
+    } elseif ($scene.Mode -eq 'none' -and $script:season.Key -ne 'summer') {
+        $extraAmbientCount = if ($script:season.Key -eq 'autumn') { 2 } else { 3 }
+        1..$extraAmbientCount | ForEach-Object { Add-SeasonParticle }
     }
 }
 
@@ -806,7 +1161,7 @@ $window.Add_PreviewMouseLeftButtonDown({
         $eventArgs.Handled = $true
     }
 })
-$CloseButton.Add_Click({ $window.Close() })
+$CloseButton.Add_Click({ Hide-WidgetWindow })
 $RefreshButton.Add_Click({
     Update-Quota
     if ($DemoWeather) { Show-NextWeatherDemo } else { Update-Weather }
@@ -851,11 +1206,47 @@ $window.Add_Closed({
     try {
         @{ left = $window.Left; top = $window.Top } | ConvertTo-Json | Set-Content -LiteralPath $statePath -Encoding UTF8
     } catch {}
+    if ($script:notifyIcon) {
+        $script:notifyIcon.Visible = $false
+        $script:notifyIcon.Dispose()
+    }
+    if ($script:trayMenu) { $script:trayMenu.Dispose() }
+    if ($script:trayIconImage) { $script:trayIconImage.Dispose() }
     if ($mutex) { $mutex.ReleaseMutex(); $mutex.Dispose() }
+    if (-not $window.Dispatcher.HasShutdownStarted) {
+        $window.Dispatcher.BeginInvokeShutdown([System.Windows.Threading.DispatcherPriority]::Background)
+    }
 })
 
 if ($SmokeTest) {
     Apply-SeasonTheme
+    if ($window.ShowInTaskbar -or $RootBorder.Effect) { throw '任务栏隐藏或外阴影移除自检失败。' }
+    $seasonParticleKinds = @()
+    foreach ($seasonKey in @('spring','summer','autumn','winter')) {
+        Clear-WeatherEffects
+        Apply-SeasonTheme $seasonKey
+        Add-SeasonParticle
+        if ($seasonKey -eq 'autumn' -and $script:particles[$script:particles.Count - 1].Shape -isnot [System.Windows.Controls.Image]) {
+            throw '秋季枫叶贴图加载自检失败。'
+        }
+        $seasonParticleKinds += $script:particles[$script:particles.Count - 1].Kind
+    }
+    if (($seasonParticleKinds -join ',') -ne 'petal,firefly,leaf,flake') { throw '四季基础效果自检失败。' }
+
+    Clear-WeatherEffects
+    Apply-SeasonTheme 'summer'
+    $script:weatherMode = 'none'
+    1..420 | ForEach-Object { Update-WeatherEffects }
+    1..2 | ForEach-Object { Update-WeatherEffects }
+    $summerFireflies = @($script:particles | Where-Object { $_.Kind -eq 'firefly' })
+    $summerGrassCount = @($script:particles | Where-Object { $_.Kind -eq 'summergrass' }).Count
+    $summerTitlePasses = @($summerFireflies | Where-Object { $_.Route -eq 'title' })
+    $summerMainActivity = @($summerFireflies | Where-Object { $_.Route -in @('right','bottom') })
+    if ($summerFireflies.Count -lt 2 -or $summerFireflies.Count -gt 4 -or
+        $summerGrassCount -ne 1 -or $summerTitlePasses.Count -gt 1 -or
+        $summerMainActivity.Count -lt 1 -or $script:season.Background -ne '#F2132528') {
+        throw '夏季萤火虫数量、活动区、草影或底色自检失败。'
+    }
     $labelResults = @(
         (Get-QuotaWindowLabel ([pscustomobject]@{ window_minutes=300 }) 1),
         (Get-QuotaWindowLabel ([pscustomobject]@{ window_minutes=10080 }) 1),
@@ -897,7 +1288,7 @@ if ($SmokeTest) {
     if ($modeResults -ne 'none,rain,fog,snow,thunder' -or -not (Test-WeatherCacheExpired $oldCache 45)) { throw '实时天气模式映射自检失败。' }
     Add-FogBand
     if (@($script:particles | Where-Object { $_.Kind -eq 'fog' }).Count -lt 1) { throw '雾效自检失败。' }
-    "UI_OK controls=$($names.Count) remaining_bar=$([Math]::Round($remainingRatio*100))% quota_labels=$labelResults modes=$modeResults demo_scenes=$($script:demoScenes.Count)"
+    "UI_OK controls=$($names.Count) remaining_bar=$([Math]::Round($remainingRatio*100))% quota_labels=$labelResults seasonal=$($seasonParticleKinds -join ',') modes=$modeResults demo_scenes=$($script:demoScenes.Count)"
     if ($mutex) { $mutex.ReleaseMutex(); $mutex.Dispose() }
     exit 0
 }
@@ -927,6 +1318,8 @@ $fxTimer.Interval = [TimeSpan]::FromMilliseconds(33)
 $fxTimer.Add_Tick({ Update-WeatherEffects })
 $fxTimer.Start()
 
-[void]$window.ShowDialog()
+Initialize-TrayIcon
+$window.Show()
+[System.Windows.Threading.Dispatcher]::Run()
 
 
