@@ -121,7 +121,7 @@ function Get-SeasonInfo([datetime]$date, [double]$latitude) {
         return [pscustomobject]@{ Key='spring'; Name='春日'; Icon='✿'; Background='#F21A2421'; Border='#6EC69A'; Primary='#69D9A2'; Secondary='#F09AB3'; Badge='#274B3C'; Rain='#8BD7D8' }
     }
     if ($month -in 6,7,8) {
-        return [pscustomobject]@{ Key='summer'; Name='盛夏'; Icon='☀'; Background='#F2162229'; Border='#4CBFC9'; Primary='#50E3C2'; Secondary='#63AFFF'; Badge='#214851'; Rain='#74D9FF' }
+        return [pscustomobject]@{ Key='summer'; Name='盛夏'; Icon='☀'; Background='#F2132528'; Border='#4CBFC9'; Primary='#50E3C2'; Secondary='#63AFFF'; Badge='#214851'; Rain='#74D9FF' }
     }
     if ($month -in 9,10,11) {
         return [pscustomobject]@{ Key='autumn'; Name='金秋'; Icon='◆'; Background='#F2251D18'; Border='#B97842'; Primary='#F0A653'; Secondary='#D97745'; Badge='#513623'; Rain='#88C9E8' }
@@ -772,6 +772,41 @@ function New-SeasonPath([string]$geometryData, [string]$fill, [double]$width, [d
     return $path
 }
 
+function Add-SummerGrassShadow {
+    # 草影只提供很弱的底部层次，不进入萤火虫数量统计，也不遮挡正文。
+    if (@($script:particles | Where-Object { $_.Kind -eq 'summergrass' }).Count -gt 0) { return }
+
+    $width = [Math]::Max(280, $WeatherCanvas.ActualWidth)
+    $height = [Math]::Max(200, $WeatherCanvas.ActualHeight)
+    $grassHeight = 22.0
+    $geometry = New-Object System.Text.StringBuilder
+    [void]$geometry.Append("M 0,$grassHeight L $width,$grassHeight L $width,18 ")
+    for ($x = $width - 5; $x -gt 0; $x -= 11) {
+        $bladeHeight = 4 + (($x / 11) % 4) * 1.4
+        [void]$geometry.Append(("L {0:0.0},18 L {1:0.0},{2:0.0} L {3:0.0},18 " -f ($x + 2.2), $x, (18 - $bladeHeight), ($x - 2.1)))
+    }
+    [void]$geometry.Append("L 0,18 Z")
+
+    $grass = New-SeasonPath $geometry.ToString() '#3D6C66' $width $grassHeight
+    $grass.Opacity = 0.13
+    [System.Windows.Controls.Canvas]::SetLeft($grass, 0)
+    [System.Windows.Controls.Canvas]::SetTop($grass, ($height - $grassHeight))
+    [void]$WeatherCanvas.Children.Add($grass)
+    [void]$script:particles.Add([pscustomobject]@{
+        Kind='summergrass'; Shape=$grass; X=0.0; Y=($height - $grassHeight); Age=0
+        VX=0.0; VY=0.0; Phase=0.0; Spin=0.0; BaseOpacity=0.13; Transform=$null
+        Route='static'; MinX=0.0; MaxX=$width; MinY=($height - $grassHeight); MaxY=$height; MaxAge=0
+    })
+}
+
+function Remove-SummerGrassShadow {
+    for ($i = $script:particles.Count - 1; $i -ge 0; $i--) {
+        if ($script:particles[$i].Kind -ne 'summergrass') { continue }
+        [void]$WeatherCanvas.Children.Remove($script:particles[$i].Shape)
+        $script:particles.RemoveAt($i)
+    }
+}
+
 function Add-SeasonParticle {
     $width = [Math]::Max(280, $WeatherCanvas.ActualWidth)
     $height = [Math]::Max(200, $WeatherCanvas.ActualHeight)
@@ -785,6 +820,12 @@ function Add-SeasonParticle {
     $vy = 0.0
     $spin = 0.0
     $baseOpacity = 0.72
+    $route = ''
+    $minX = 0.0
+    $maxX = $width
+    $minY = 0.0
+    $maxY = $height
+    $maxAge = 900
 
     switch ($script:season.Key) {
         'spring' {
@@ -798,31 +839,76 @@ function Add-SeasonParticle {
             $baseOpacity = 0.62 + $script:random.NextDouble() * 0.2
         }
         'summer' {
-            # 核心亮点与柔光分层，保证小托盘窗内也能看清萤火虫。
-            $size = 8.5 + $script:random.NextDouble() * 4.0
+            # 用翅膀、躯干和暖黄色尾光表达萤火虫，避免大量绿色光点。
+            $size = 11.0 + $script:random.NextDouble() * 3.0
             $shape = New-Object System.Windows.Controls.Grid
             $shape.Width = $size
             $shape.Height = $size
             $halo = New-Object System.Windows.Shapes.Ellipse
-            $halo.Fill = ConvertTo-Brush '#D8F55B'
-            $halo.Opacity = 0.44
+            $halo.Fill = ConvertTo-Brush '#FFE58A'
+            $halo.Opacity = 0.20
             $blur = New-Object System.Windows.Media.Effects.BlurEffect
-            $blur.Radius = 4.2
+            $blur.Radius = 4.6
             $halo.Effect = $blur
             [void]$shape.Children.Add($halo)
-            $core = New-Object System.Windows.Shapes.Ellipse
-            $core.Width = 2.4
-            $core.Height = 2.4
-            $core.Fill = ConvertTo-Brush '#FFF7A6'
-            $core.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
-            $core.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-            [void]$shape.Children.Add($core)
+
+            foreach ($wingSide in @(-1, 1)) {
+                $wing = New-Object System.Windows.Shapes.Ellipse
+                $wing.Width = 4.8
+                $wing.Height = 2.5
+                $wing.Fill = ConvertTo-Brush '#B8D8D1'
+                $wing.Opacity = 0.48
+                $wing.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
+                $wing.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+                $wing.Margin = New-Object System.Windows.Thickness -ArgumentList ($wingSide * 4.0), -2.0, 0, 0
+                $wing.RenderTransformOrigin = [System.Windows.Point]::Parse('0.5,0.5')
+                $wing.RenderTransform = New-Object System.Windows.Media.RotateTransform ($wingSide * 24)
+                [void]$shape.Children.Add($wing)
+            }
+
+            $body = New-Object System.Windows.Shapes.Ellipse
+            $body.Width = 2.4
+            $body.Height = 6.0
+            $body.Fill = ConvertTo-Brush '#304A43'
+            $body.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
+            $body.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+            [void]$shape.Children.Add($body)
+
+            $tail = New-Object System.Windows.Shapes.Ellipse
+            $tail.Width = 3.0
+            $tail.Height = 3.0
+            $tail.Fill = ConvertTo-Brush '#FFF0A6'
+            $tail.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
+            $tail.VerticalAlignment = [System.Windows.VerticalAlignment]::Bottom
+            $tail.Margin = New-Object System.Windows.Thickness -ArgumentList 0, 0, 0, 1.4
+            [void]$shape.Children.Add($tail)
+
             $kind = 'firefly'
-            $x = 10 + $script:random.NextDouble() * ($width - 20)
-            $y = 10 + $script:random.NextDouble() * ($height - 28)
-            $vx = ($script:random.NextDouble() - 0.5) * 0.15
-            $vy = -0.025 - $script:random.NextDouble() * 0.07
-            $baseOpacity = 0.72 + $script:random.NextDouble() * 0.22
+            $hasTitlePass = @($script:particles | Where-Object { $_.Kind -eq 'firefly' -and $_.Route -eq 'title' }).Count -gt 0
+            if (-not $hasTitlePass -and $script:random.NextDouble() -lt 0.12) {
+                # 标题附近的萤火虫保持横向飞行，不在文字区域悬停。
+                $route = 'title'
+                $x = $width - 12
+                $y = 10 + $script:random.NextDouble() * 18
+                $vx = -0.34 - $script:random.NextDouble() * 0.13
+                $vy = 0.0
+                $maxAge = 330
+            } else {
+                $route = if ($script:random.NextDouble() -lt 0.56) { 'right' } else { 'bottom' }
+                if ($route -eq 'right') {
+                    $minX = $width * 0.64; $maxX = $width * 0.94
+                    $minY = $height * 0.24; $maxY = $height * 0.86
+                } else {
+                    $minX = $width * 0.12; $maxX = $width * 0.92
+                    $minY = $height * 0.70; $maxY = $height * 0.90
+                }
+                $x = $minX + $script:random.NextDouble() * ($maxX - $minX)
+                $y = $minY + $script:random.NextDouble() * ($maxY - $minY)
+                $vx = ($script:random.NextDouble() - 0.5) * 0.13
+                $vy = ($script:random.NextDouble() - 0.5) * 0.09
+                $maxAge = 1050 + $script:random.Next(0, 520)
+            }
+            $baseOpacity = 0.76 + $script:random.NextDouble() * 0.16
         }
         'autumn' {
             $size = 18.0 + $script:random.NextDouble() * 8.0
@@ -875,23 +961,35 @@ function Add-SeasonParticle {
     [void]$script:particles.Add([pscustomobject]@{
         Kind=$kind; Shape=$shape; X=$x; Y=$y; Age=0; VX=$vx; VY=$vy
         Phase=$phase; Spin=$spin; BaseOpacity=$baseOpacity; Transform=$transform
+        Route=$route; MinX=$minX; MaxX=$maxX; MinY=$minY; MaxY=$maxY; MaxAge=$maxAge
     })
 }
 
 function Update-WeatherEffects {
     $LightningFlash.Opacity = [Math]::Max(0, $LightningFlash.Opacity * 0.72)
 
-    # 季节装饰与天气效果是两条独立视觉通道；夏季提高密度以增强萤火可见度。
+    # 季节装饰与天气效果是两条独立视觉通道。
     $baseAmbientChance = switch ($script:season.Key) {
         'spring' { 0.024 }
-        'summer' { 0.044 }
+        'summer' { 0.0018 }
         'autumn' { 0.014 }
         default { 0.021 }
     }
     $ambientChance = if ($script:weatherMode -eq 'none') { $baseAmbientChance } else { $baseAmbientChance * 0.34 }
     $ambientKinds = @('petal','firefly','leaf','flake')
     $ambientCount = @($script:particles | Where-Object { $_.Kind -in $ambientKinds }).Count
-    if ($ambientCount -lt 26 -and $script:random.NextDouble() -lt $ambientChance) { Add-SeasonParticle }
+    if ($script:season.Key -eq 'summer') {
+        Add-SummerGrassShadow
+        $fireflyCount = @($script:particles | Where-Object { $_.Kind -eq 'firefly' }).Count
+        if ($fireflyCount -lt 2 -or ($fireflyCount -lt 4 -and $script:random.NextDouble() -lt $ambientChance)) {
+            Add-SeasonParticle
+        }
+    } elseif ($ambientCount -lt 26 -and $script:random.NextDouble() -lt $ambientChance) {
+        Remove-SummerGrassShadow
+        Add-SeasonParticle
+    } else {
+        Remove-SummerGrassShadow
+    }
 
     if ($script:weatherMode -in @('rain','thunder')) {
         $count = if ($script:weatherIntensity -ge 3) { 2 } elseif ($script:weatherIntensity -eq 2) { 1 } elseif ($script:random.NextDouble() -lt 0.48) { 1 } else { 0 }
@@ -955,14 +1053,24 @@ function Update-WeatherEffects {
             }
             'firefly' {
                 $p.Age++
-                $p.X += $p.VX + [Math]::Sin($p.Age / 24.0 + $p.Phase) * 0.055
-                $p.Y += $p.VY + [Math]::Cos($p.Age / 31.0 + $p.Phase) * 0.025
-                $pulse = 0.67 + 0.33 * (([Math]::Sin($p.Age / 9.0 + $p.Phase) + 1) / 2)
+                if ($p.Route -eq 'title') {
+                    $p.X += $p.VX
+                    $p.Y += [Math]::Sin($p.Age / 18.0 + $p.Phase) * 0.035
+                } else {
+                    $p.X += $p.VX + [Math]::Sin($p.Age / 27.0 + $p.Phase) * 0.045
+                    $p.Y += $p.VY + [Math]::Cos($p.Age / 34.0 + $p.Phase) * 0.030
+                    if ($p.X -le $p.MinX -or $p.X -ge $p.MaxX) { $p.VX = -$p.VX }
+                    if ($p.Y -le $p.MinY -or $p.Y -ge $p.MaxY) { $p.VY = -$p.VY }
+                    $p.X = [Math]::Min($p.MaxX, [Math]::Max($p.MinX, $p.X))
+                    $p.Y = [Math]::Min($p.MaxY, [Math]::Max($p.MinY, $p.Y))
+                }
+                $pulse = 0.62 + 0.38 * (([Math]::Sin($p.Age / 12.0 + $p.Phase) + 1) / 2)
                 $p.Shape.Opacity = $p.BaseOpacity * $pulse
                 [System.Windows.Controls.Canvas]::SetLeft($p.Shape, $p.X)
                 [System.Windows.Controls.Canvas]::SetTop($p.Shape, $p.Y)
-                if ($p.Y -lt -18 -or $p.X -lt -18 -or $p.X -gt ($width + 18) -or $p.Age -gt 760) { $remove = $true }
+                if ($p.X -lt -18 -or $p.X -gt ($width + 18) -or $p.Age -gt $p.MaxAge) { $remove = $true }
             }
+            'summergrass' { }
             'leaf' {
                 $p.Age++
                 $p.X += $p.VX + [Math]::Sin($p.Age / 13.0 + $p.Phase) * 0.24
@@ -1013,8 +1121,13 @@ function Show-NextWeatherDemo {
     $WeatherText.Text = "$($scene.WeatherName) · 演示 $($script:demoIndex+1)/$($script:demoScenes.Count)"
     $WeatherText.ToolTip = '展示四季常见天气组合；点击刷新立即切换'
 
-    $initialAmbientCount = if ($script:season.Key -eq 'autumn') { 3 } else { 4 }
+    $initialAmbientCount = switch ($script:season.Key) {
+        'autumn' { 3 }
+        'summer' { 3 }
+        default { 4 }
+    }
     1..$initialAmbientCount | ForEach-Object { Add-SeasonParticle }
+    if ($script:season.Key -eq 'summer') { Add-SummerGrassShadow }
     if ($scene.Mode -eq 'snow') {
         1..9 | ForEach-Object { Add-Snowflake $false }
     } elseif ($scene.Mode -eq 'fog') {
@@ -1022,7 +1135,7 @@ function Show-NextWeatherDemo {
     } elseif ($scene.Mode -in @('rain','thunder')) {
         1..5 | ForEach-Object { Add-RainDrop }
         if ($scene.Mode -eq 'thunder') { $LightningFlash.Opacity = 0.34 }
-    } elseif ($scene.Mode -eq 'none') {
+    } elseif ($scene.Mode -eq 'none' -and $script:season.Key -ne 'summer') {
         $extraAmbientCount = if ($script:season.Key -eq 'autumn') { 2 } else { 3 }
         1..$extraAmbientCount | ForEach-Object { Add-SeasonParticle }
     }
@@ -1119,6 +1232,21 @@ if ($SmokeTest) {
         $seasonParticleKinds += $script:particles[$script:particles.Count - 1].Kind
     }
     if (($seasonParticleKinds -join ',') -ne 'petal,firefly,leaf,flake') { throw '四季基础效果自检失败。' }
+
+    Clear-WeatherEffects
+    Apply-SeasonTheme 'summer'
+    $script:weatherMode = 'none'
+    1..420 | ForEach-Object { Update-WeatherEffects }
+    1..2 | ForEach-Object { Update-WeatherEffects }
+    $summerFireflies = @($script:particles | Where-Object { $_.Kind -eq 'firefly' })
+    $summerGrassCount = @($script:particles | Where-Object { $_.Kind -eq 'summergrass' }).Count
+    $summerTitlePasses = @($summerFireflies | Where-Object { $_.Route -eq 'title' })
+    $summerMainActivity = @($summerFireflies | Where-Object { $_.Route -in @('right','bottom') })
+    if ($summerFireflies.Count -lt 2 -or $summerFireflies.Count -gt 4 -or
+        $summerGrassCount -ne 1 -or $summerTitlePasses.Count -gt 1 -or
+        $summerMainActivity.Count -lt 1 -or $script:season.Background -ne '#F2132528') {
+        throw '夏季萤火虫数量、活动区、草影或底色自检失败。'
+    }
     $labelResults = @(
         (Get-QuotaWindowLabel ([pscustomobject]@{ window_minutes=300 }) 1),
         (Get-QuotaWindowLabel ([pscustomobject]@{ window_minutes=10080 }) 1),
